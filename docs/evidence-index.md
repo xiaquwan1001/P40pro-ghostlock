@@ -51,6 +51,13 @@
 | `2026-11-17-static-state8-pointee` | 静态定查：`*(state+8)` 是华为 prmem 池的 8 B 分配（`selinux_protection_init`），读者仅 2 处 `ldarb`，其余 7 字节无消费者 ⇒ leaf-zero 整字无 collateral |
 | `2026-11-17-state8-pointee-write` | 第 7 条候选上机 ⇒ **整机 spin**，理论可行但实测判死（至此 7/7 全死） |
 
+## D2. 生命周期与「更强原语」排查（2026-11-25）
+
+| 证据目录 | 一句话结论 |
+|---|---|
+| `2026-11-25-detached-root` | root worker 42 s 到 `uid=0`；`adb kill-server` 后存活 35 s+；**物理拔 USB ⇒ worker 被杀 → panic 自动重启**（`bootreason=abnormal`）⇒ root 期间必须保持 USB |
+| `2026-11-25-bpf-surface` | 内核「更强写原语」逐个上机排除：**BPF**（`bpf()`/`BPF_PROG_LOAD` 均 EACCES，verifier 未进入）、**Mali kbase**（`/dev/mali0` 0666 可 open，但 `VERSION_CHECK`/`SET_FLAGS` 全 EPERM）、keyring（`add_key` EACCES）、节点可达性 22 项、`/proc/slabinfo` 可读 |
+
 ## E. 相邻事实（解锁侧，供对照）
 
 | 证据目录 | 一句话结论 |

@@ -21,7 +21,9 @@ SELinux、HKIP（Huawei Kernel Integrity Protection）、KASLR、`perf_event_par
 ## 1. 一句话结论
 
 **拿到了「重启即失效的 root」**：`uid 0` + 一组 capabilities，但仍在 `u:r:shell:s0` 域里；
-从 `adb shell` 起算约 39 秒进入，之后每次提权约 2 秒；重启后一切恢复原状。
+从 `adb shell` 起算约 **42 秒**进入（早期测得 39 s），之后每次提权约 2 秒；重启后一切恢复原状。
+**生命周期（2026-11-25 实测）**：`adb kill-server` 后存活；**物理拔 USB 则 worker 被杀 → panic → 自动重启**
+⇒ 使用期间必须保持 USB 连接。
 **拿不到完整 root**：SELinux 的 MAC 面 7 条候选**全部判死**，所以域换不掉、策略改不了
 （`/system` 不可写、SELinux 无法 permissive）。持久 root 因此只剩「解 BL」这一条路。
 
@@ -94,6 +96,39 @@ SELinux、HKIP（Huawei Kernel Integrity Protection）、KASLR、`perf_event_par
 逐目录结论见 [docs/evidence-index.md](docs/evidence-index.md)（33 个证据目录里与本议题相关的 30 个，
 每个一句结论 + 关键数字）。
 
+## 7b. 2026-11-25 更新（生命周期刻画 + 内核面逐个判死）
+
+**root 生命周期**（证据 `evidence/2026-11-25-detached-root`）
+
+| 实验 | 结果 |
+|---|---|
+| 起 worker 到 root | 42 s → `uid=0(root)`、`context=u:r:shell:s0` |
+| worker 进程形态 | 父为 `setsid` 后的 shell，子进程 PPID=1（不挂在 adbd 会话上） |
+| `adb kill-server` 等 35 s 重连 | 心跳继续增长 ⇒ **存活** |
+| **物理拔 USB** | **worker 被杀 → `panic("Attempted to kill the idle task")` → 自动重启**（`ro.boot.bootreason=abnormal`） |
+
+⇒ 修正一条此前的推断：`kill-server` 存活 ≠ 拔线存活。物理拔线会让 adbd 的 transport 消失，
+清理范围比断连接大，`setsid` 逃不掉。要用「拔线仍在」只能找一个非 adb 会话的常驻宿主（无非 root 手段，未排期）。
+
+**「免 PC 自启动」判死**：华为 EMUI 10 → HarmonyOS 4.3 **全系没有「无线调试」**（官方 FAQ 只推 USB 调试；
+设备侧 `adb_wifi_enabled` 键存在但 `settings put` 静默失败，旁边是华为自定义 `allow_charging_adb`）。
+`adb tcpip 5555` 可用（实测 `restarting in TCP mode port: 5555`），但重启失效、首次仍需插线；
+且机内进程无 root 无法把 key 写进 `/data/misc/adb/adb_keys`，过了连接也过不了认证。
+
+**「更强写原语」逐个上机排除**（证据 `evidence/2026-11-25-bpf-surface`，工具 `bpfprobe.c` / `mali-probe.c`）
+
+| 面 | 实测 | 判定 |
+|---|---|---|
+| nftables | `netlink_firewall`/`nflog`/`xfrm` 全 EACCES(MAC)；config 只编 IPv6 族 | 不可达 |
+| **BPF** | `bpf(BPF_MAP_CREATE)` / `bpf(BPF_PROG_LOAD)` 均 EACCES，verifier log 空 | 不可达 |
+| **Mali kbase** | `/dev/mali0` 0666 且 open 成功，但 `VERSION_CHECK`/`SET_FLAGS` 全 EPERM（major 0–2 × minor 0–40 穷举） | 不可达 |
+| keyring | `keyctl(GET_KEYRING_ID)` OK、`add_key` EACCES | 只读 |
+| 2025-11 后 12 个 CVE 候选 | config 全拦；唯一幸存 CVE-2026-23111（nf_tables catchall）在本机**代码路径不存在**（7 个关键符号为 0，该路径 5.10.188 才回补） | 无 |
+| 仍开着未测透 | `/dev/ion`、`/dev/binder`、`/dev/hwbinder` ioctl 面；253 个 `CONFIG_(HUAWEI\|HISI)*` 的 `/sys` 节点；`/proc/slabinfo` 可读（堆布局泄露，非原语） | 待办 |
+
+**外围**：上游 kirin-tool 维护者合并了我们的 GUI 修复（PR #2），按 scope 关闭了 CLI/MCP 那条（「这个仓库要做 Kirin-Tool 的忠实 Linux 移植」）；
+已按新 scope 提 PR #5（4 个「假成功」修复 + 1 个上游本来就红的 boundary 哈希修复；0 error / 149 warning = 基线，4 套 harness PASS）。
+
 ## 8. 现在到哪、下一步
 
 - 路线 C（免解锁提权）**收盘**：机制、写原语、读原语、终点几何全部闭合；MAC 面 7/7 判死，收益封顶。
@@ -105,7 +140,7 @@ SELinux、HKIP（Huawei Kernel Integrity Protection）、KASLR、`perf_event_par
 
 - 同一台设备上的刷机 / 救砖工具线（Linux 下的 GUI + CLI + MCP 刷写工具，含这次实验用的 fastboot 引擎）：
   <https://github.com/xiaquwan1001/kirin-tool-linux-refresh>
-- 酷安帖（进度分享版）：<https://www.coolapk.com/feed/75225799>
+- 酷安帖（进度分享版）：<https://www.coolapk.com/feed/75225799>；2026-11-25 更新帖：<https://www.coolapk.com/feed/COOLAPK_FEED_ID_20261125>
 
 ## 10. 免责与边界
 
