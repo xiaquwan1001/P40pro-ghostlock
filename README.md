@@ -140,7 +140,7 @@ SELinux、HKIP（Huawei Kernel Integrity Protection）、KASLR、`perf_event_par
 
 - 同一台设备上的刷机 / 救砖工具线（Linux 下的 GUI + CLI + MCP 刷写工具，含这次实验用的 fastboot 引擎）：
   <https://github.com/xiaquwan1001/kirin-tool-linux-refresh>
-- 酷安帖（进度分享版）：<https://www.coolapk.com/feed/75225799>；2026-11-25 更新帖：<https://www.coolapk.com/feed/COOLAPK_FEED_ID_20261125>
+- 酷安帖（进度分享版）：<https://www.coolapk.com/feed/75225799>；2026-11-25 更新帖：<https://www.coolapk.com/feed/75262475>
 
 ## 10. 免责与边界
 
